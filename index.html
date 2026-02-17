@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>農作業記録簿</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="config.js"></script>
+    <style>
+        /* ============================================
+           リセット & ベース
+           ============================================ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Meiryo", sans-serif;
+            background: #f7f9f7;
+            color: #333;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ============================================
+           ヘッダー
+           ============================================ */
+        .app-header {
+            background: linear-gradient(135deg, #2e7d32, #4CAF50);
+            color: #fff;
+            padding: 16px 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .app-header h1 {
+            font-size: 1.3em;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        .app-header .subtitle {
+            font-size: 0.8em;
+            opacity: 0.85;
+            margin-top: 2px;
+        }
+
+        /* ============================================
+           メインコンテナ
+           ============================================ */
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 20px 16px;
+        }
+
+        /* ============================================
+           フィルターバー
+           ============================================ */
+        .filter-bar {
+            background: #fff;
+            border-radius: 10px;
+            padding: 14px 18px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            border: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .filter-bar label {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: #555;
+            white-space: nowrap;
+        }
+        .filter-bar select {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 0.9em;
+            background: #fff;
+            color: #333;
+            min-width: 160px;
+            cursor: pointer;
+        }
+        .filter-bar select:focus {
+            outline: none;
+            border-color: #4CAF50;
+            box-shadow: 0 0 0 2px rgba(76,175,80,0.2);
+        }
+        .result-count {
+            font-size: 0.85em;
+            color: #888;
+            margin-left: auto;
+        }
+
+        /* ============================================
+           ステータスバッジ
+           ============================================ */
+        .badge {
+            display: inline-block;
+            padding: 3px 12px;
+            border-radius: 12px;
+            font-size: 0.82em;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .badge-active  { background: #e8f5e9; color: #2e7d32; }
+        .badge-plan    { background: #fff3e0; color: #e65100; }
+        .badge-done    { background: #e3f2fd; color: #1565c0; }
+
+        /* ============================================
+           サイクルカード
+           ============================================ */
+        .cycle-card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 16px 18px;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+        .cycle-card:hover {
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            border-color: #b0d4b0;
+        }
+        .cycle-card.expanded {
+            border-color: #4CAF50;
+            box-shadow: 0 3px 12px rgba(76,175,80,0.15);
+        }
+        .cycle-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .cycle-card-header h3 {
+            color: #2e7d32;
+            font-size: 1.05em;
+            margin: 0;
+        }
+        .cycle-meta {
+            font-size: 0.85em;
+            color: #777;
+            margin-top: 6px;
+        }
+        .cycle-detail {
+            display: none;
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid #eee;
+        }
+        .cycle-card.expanded .cycle-detail {
+            display: block;
+        }
+        .cycle-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 8px 16px;
+            margin-bottom: 14px;
+        }
+        .cycle-info-item {
+            font-size: 0.88em;
+        }
+        .cycle-info-item .label {
+            color: #888;
+            font-weight: 600;
+        }
+
+        /* ============================================
+           タイムライン
+           ============================================ */
+        .timeline-section h4 {
+            font-size: 0.95em;
+            color: #555;
+            margin-bottom: 12px;
+        }
+        .tl-container {
+            position: relative;
+            padding: 10px 0 10px 40px;
+        }
+        .tl-container::before {
+            content: '';
+            position: absolute;
+            left: 18px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(to bottom, #4CAF50, #81C784);
+            border-radius: 2px;
+        }
+        .tl-item {
+            position: relative;
+            margin-bottom: 14px;
+            padding: 12px 16px;
+            background: #fafffe;
+            border-radius: 10px;
+            border-left: 4px solid #4CAF50;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        }
+        .tl-item::before {
+            content: '';
+            position: absolute;
+            left: -31px;
+            top: 16px;
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            background: #4CAF50;
+            border: 3px solid #e8f5e9;
+        }
+        .tl-date {
+            font-size: 0.82em;
+            color: #888;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+        .tl-type {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            background: #e8f5e9;
+            color: #2e7d32;
+            font-size: 0.82em;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .tl-content {
+            font-size: 0.92em;
+            color: #333;
+            line-height: 1.5;
+        }
+        .tl-note {
+            font-size: 0.82em;
+            color: #999;
+            margin-top: 3px;
+        }
+        .tl-extra {
+            font-size: 0.82em;
+            color: #777;
+            margin-top: 2px;
+        }
+
+        /* ============================================
+           ローディング
+           ============================================ */
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }
+        .loading .spinner {
+            display: inline-block;
+            width: 36px;
+            height: 36px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #4CAF50;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin-bottom: 12px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ============================================
+           エラー / 空
+           ============================================ */
+        .message-box {
+            text-align: center;
+            padding: 40px 20px;
+            background: #fff;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+            color: #888;
+            font-size: 0.95em;
+        }
+        .message-box.error {
+            color: #c62828;
+            border-color: #ffcdd2;
+            background: #ffebee;
+        }
+
+        /* ============================================
+           フッター
+           ============================================ */
+        .app-footer {
+            text-align: center;
+            padding: 24px 16px;
+            font-size: 0.8em;
+            color: #aaa;
+        }
+
+        /* ============================================
+           展開アイコン
+           ============================================ */
+        .expand-icon {
+            margin-left: auto;
+            font-size: 0.85em;
+            color: #aaa;
+            transition: transform 0.2s ease;
+            flex-shrink: 0;
+        }
+        .cycle-card.expanded .expand-icon {
+            transform: rotate(180deg);
+        }
+
+        /* ============================================
+           レスポンシブ
+           ============================================ */
+        @media (max-width: 600px) {
+            .container { padding: 12px 10px; }
+            .app-header { padding: 12px 16px; }
+            .app-header h1 { font-size: 1.1em; }
+            .filter-bar { flex-direction: column; align-items: stretch; }
+            .filter-bar select { min-width: 100%; }
+            .result-count { margin-left: 0; }
+            .cycle-card { padding: 12px 14px; }
+            .cycle-info-grid { grid-template-columns: 1fr; }
+            .tl-container { padding-left: 32px; }
+            .tl-item::before { left: -25px; width: 11px; height: 11px; }
+            .tl-container::before { left: 14px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ヘッダー -->
+    <header class="app-header">
+        <h1 id="appTitle">🌾 農作業記録簿</h1>
+        <div class="subtitle">作付け一覧（簡易）</div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <div class="container">
+        <!-- フィルター -->
+        <div class="filter-bar" id="filterBar" style="display:none;">
+            <label for="statusFilter">ステータス</label>
+            <select id="statusFilter">
+                <option value="すべて">すべて</option>
+                <option value="育苗中">育苗中</option>
+                <option value="まもなく収穫開始">まもなく収穫開始</option>
+                <option value="収穫中">収穫中</option>
+                <option value="まもなく収穫終了">まもなく収穫終了</option>
+                <option value="終了">終了</option>
+                <option value="計画中">計画中</option>
+            </select>
+            <span class="result-count" id="resultCount"></span>
+        </div>
+
+        <!-- カード一覧 -->
+        <div id="cycleList">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div>データを読み込んでいます…</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- フッター -->
+    <footer class="app-footer">
+        農作業記録簿 v2.0 ─ Google Sheets 連携版
+    </footer>
+
+    <script>
+    /* ============================================================
+       グローバルデータ
+       ============================================================ */
+    let cropCycles = [];
+    let workLogs = [];
+    let expandedCycleId = null;
+
+    /* ============================================================
+       Google Sheets からCSVを取得
+       ============================================================ */
+    function buildSheetURL(sheetName) {
+        if (CONFIG.PUBLISHED_ID) {
+            return `https://docs.google.com/spreadsheets/d/e/${CONFIG.PUBLISHED_ID}/pub?output=csv&sheet=${encodeURIComponent(sheetName)}`;
+        }
+        return `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+    }
+
+    async function fetchSheetCSV(sheetName) {
+        const url = buildSheetURL(sheetName);
+
+        const response = await fetch(url, { redirect: "follow" });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const csvText = await response.text();
+
+        if (csvText.trim().startsWith("<!") || csvText.trim().startsWith("<html")) {
+            throw new Error("スプレッドシートにアクセスできません。公開設定を確認してください。");
+        }
+
+        const results = Papa.parse(csvText, {
+            header: true,
+            skipEmptyLines: true,
+        });
+
+        if (results.errors && results.errors.length > 0) {
+            console.warn("CSV パース警告:", results.errors);
+        }
+
+        return results.data;
+    }
+
+    /* ============================================================
+       データ取得 & 初期化
+       ============================================================ */
+    async function loadData() {
+        try {
+            if (!CONFIG.PUBLISHED_ID && (!CONFIG.SHEET_ID || CONFIG.SHEET_ID === "ここにスプレッドシートIDを貼り付け")) {
+                showError("config.js にスプレッドシートの公開IDまたはシートIDを設定してください。<br>詳しくは README.md をご覧ください。");
+                return;
+            }
+
+            const [cyclesRaw, logsRaw] = await Promise.all([
+                fetchSheetCSV(CONFIG.CROP_CYCLES_SHEET),
+                fetchSheetCSV(CONFIG.WORK_LOGS_SHEET),
+            ]);
+
+            cropCycles = parseCropCycles(cyclesRaw);
+            workLogs = parseWorkLogs(logsRaw);
+
+            document.getElementById("filterBar").style.display = "flex";
+            render();
+        } catch (err) {
+            console.error("データ取得エラー:", err);
+            showError(
+                "データの取得に失敗しました。<br>" +
+                "・スプレッドシートが「ウェブに公開」されているか確認してください<br>" +
+                "・config.js の公開IDが正しいか確認してください<br>" +
+                "<small style='color:#999;margin-top:8px;display:block;'>エラー: " + (err.message || err) + "</small>"
+            );
+        }
+    }
+
+    /* ============================================================
+       データ変換（スプレッドシートの列名 → 内部キー）
+       ============================================================ */
+    function parseCropCycles(rows) {
+        return rows.map((r, idx) => ({
+            id:             (r["作付けID"] || "").trim() || String(idx + 1),
+            crop_name:      (r["作物名"] || "").trim(),
+            variety:        (r["品種"] || "").trim(),
+            field_id:       (r["圃場ID"] || "").trim(),
+            row_id:         (r["畝ID"] || "").trim(),
+            start_date:     (r["開始日"] || "").trim(),
+            end_date:       (r["終了日"] || "").trim(),
+            status:         (r["ステータス"] || "計画中").trim(),
+            yield_amount:   (r["収量"] || "").trim(),
+            yield_unit:     (r["単位"] || "kg").trim(),
+            quality_rating: (r["品質評価"] || "").trim(),
+            quality_note:   (r["品質メモ"] || "").trim(),
+            comment:        (r["コメント"] || "").trim(),
+        })).filter(c => c.crop_name);
+    }
+
+    function parseWorkLogs(rows) {
+        return rows.map((r, idx) => ({
+            id:        (r["記録ID"] || "").trim() || String(idx + 1),
+            cycle_id:  (r["作付けID"] || "").trim(),
+            work_date: (r["作業日"] || "").trim(),
+            work_type: (r["作業種別"] || "").trim(),
+            cell_pot:  (r["セル・ポット"] || "").trim(),
+            quantity:  (r["数量"] || "").trim(),
+            field_id:  (r["圃場ID"] || "").trim(),
+            row_id:    (r["畝ID"] || "").trim(),
+            content:   (r["内容"] || "").trim(),
+            note:      (r["備考"] || "").trim(),
+        })).filter(l => l.work_date || l.content);
+    }
+
+    /* ============================================================
+       描画
+       ============================================================ */
+    function render() {
+        const filter = document.getElementById("statusFilter").value;
+        let filtered = cropCycles;
+        if (filter !== "すべて") {
+            filtered = cropCycles.filter(c => c.status === filter);
+        }
+
+        // 開始日の降順でソート
+        filtered.sort((a, b) => {
+            const da = a.start_date || "9999";
+            const db = b.start_date || "9999";
+            return db.localeCompare(da);
+        });
+
+        document.getElementById("resultCount").textContent = `${filtered.length} 件の作付け`;
+
+        const container = document.getElementById("cycleList");
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="message-box">該当する作付けがありません</div>';
+            return;
+        }
+
+        container.innerHTML = filtered.map(cy => buildCycleCard(cy)).join("");
+    }
+
+    function buildCycleCard(cy) {
+        const varietyText = cy.variety ? `（${cy.variety}）` : "";
+        const fieldInfo = cy.field_id ? `📍 ${cy.field_id}` : "📍 圃場未設定";
+        const period = `${cy.start_date || "?"} ～ ${cy.end_date || "継続中"}`;
+        const isExpanded = expandedCycleId === cy.id;
+        const expandedClass = isExpanded ? "expanded" : "";
+
+        const logs = workLogs
+            .filter(l => l.cycle_id === cy.id)
+            .sort((a, b) => (a.work_date || "").localeCompare(b.work_date || ""));
+
+        let detailHTML = buildDetailHTML(cy, logs);
+
+        return `
+            <div class="cycle-card ${expandedClass}" onclick="toggleCard('${escapeAttr(cy.id)}')">
+                <div class="cycle-card-header">
+                    <h3>🌱 ${esc(cy.crop_name)}${esc(varietyText)}</h3>
+                    ${statusBadge(cy.status)}
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="cycle-meta">
+                    ${esc(fieldInfo)}　｜　${esc(period)}
+                </div>
+                <div class="cycle-detail">
+                    ${detailHTML}
+                </div>
+            </div>
+        `;
+    }
+
+    function buildDetailHTML(cy, logs) {
+        let html = '<div class="cycle-info-grid">';
+        html += infoItem("作物", cy.crop_name);
+        html += infoItem("品種", cy.variety || "―");
+        html += infoItem("圃場", cy.field_id || "―");
+        html += infoItem("畝", cy.row_id || "―");
+
+        if (cy.yield_amount) {
+            html += infoItem("収量", `${cy.yield_amount} ${cy.yield_unit}`);
+            html += infoItem("品質評価", cy.quality_rating || "―");
+        }
+        html += '</div>';
+
+        if (cy.quality_note) {
+            html += `<div style="font-size:0.88em;color:#666;margin-bottom:10px;">品質メモ: ${esc(cy.quality_note)}</div>`;
+        }
+        if (cy.comment) {
+            html += `<div style="font-size:0.88em;color:#666;margin-bottom:10px;">💬 ${esc(cy.comment)}</div>`;
+        }
+
+        if (logs.length > 0) {
+            html += `<div class="timeline-section">`;
+            html += `<h4>📋 作業記録: ${logs.length} 件</h4>`;
+            html += buildTimeline(logs);
+            html += `</div>`;
+        } else {
+            html += `<div style="font-size:0.88em;color:#aaa;margin-top:8px;">作業記録はまだありません</div>`;
+        }
+
+        return html;
+    }
+
+    function buildTimeline(logs) {
+        let html = '<div class="tl-container">';
+        for (const log of logs) {
+            const noteHTML = log.note
+                ? `<div class="tl-note">📌 ${esc(log.note)}</div>` : "";
+
+            const extras = [];
+            if (log.cell_pot) extras.push(`📦 ${esc(log.cell_pot)}`);
+            if (log.quantity) extras.push(`🔢 ${esc(log.quantity)}`);
+            const extraHTML = extras.length > 0
+                ? `<div class="tl-extra">${extras.join(" ／ ")}</div>` : "";
+
+            html += `
+                <div class="tl-item">
+                    <div class="tl-date">${esc(log.work_date)}</div>
+                    <span class="tl-type">${esc(log.work_type)}</span>
+                    ${extraHTML}
+                    <div class="tl-content">${esc(log.content)}</div>
+                    ${noteHTML}
+                </div>
+            `;
+        }
+        html += '</div>';
+        return html;
+    }
+
+    /* ============================================================
+       ユーティリティ
+       ============================================================ */
+    function statusBadge(status) {
+        const clsMap = {
+            "計画中": "badge-plan",
+            "終了": "badge-done",
+            "育苗中": "badge-active",
+            "まもなく収穫開始": "badge-active",
+            "収穫中": "badge-active",
+            "まもなく収穫終了": "badge-active",
+        };
+        const cls = clsMap[status] || "";
+        return `<span class="badge ${cls}">${esc(status)}</span>`;
+    }
+
+    function infoItem(label, value) {
+        return `<div class="cycle-info-item"><span class="label">${esc(label)}:</span> ${esc(value)}</div>`;
+    }
+
+    function esc(str) {
+        if (!str) return "";
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function escapeAttr(str) {
+        return (str || "").replace(/'/g, "\\'").replace(/"/g, "&quot;");
+    }
+
+    function showError(msg) {
+        document.getElementById("cycleList").innerHTML =
+            `<div class="message-box error">${msg}</div>`;
+    }
+
+    /* ============================================================
+       インタラクション
+       ============================================================ */
+    function toggleCard(cycleId) {
+        if (expandedCycleId === cycleId) {
+            expandedCycleId = null;
+        } else {
+            expandedCycleId = cycleId;
+        }
+        render();
+    }
+
+    document.getElementById("statusFilter").addEventListener("change", () => {
+        expandedCycleId = null;
+        render();
+    });
+
+    /* ============================================================
+       起動
+       ============================================================ */
+    document.addEventListener("DOMContentLoaded", () => {
+        document.getElementById("appTitle").textContent = "🌾 " + (CONFIG.TITLE || "農作業記録簿");
+        loadData();
+    });
+    </script>
+</body>
+</html>
