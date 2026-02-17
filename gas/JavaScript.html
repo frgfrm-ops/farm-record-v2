@@ -1,0 +1,662 @@
+<script>
+/* ============================================================
+   グローバル状態
+   ============================================================ */
+var isLoggedIn = false;
+var cropCyclesCache = [];
+
+var WORK_TYPES = [
+  "播種","播種セル","播種ポット","育苗","定植",
+  "土作り（施肥耕耘）","畝立て","畝立てマルチ張り","マルチ張り",
+  "収穫","出荷・販売","購入",
+  "灌水","除草","防除","摘果・摘花",
+  "誘引・仕立て","剪定・整枝",
+  "施肥","耕耘","圃場準備","片付け",
+  "観察・記録","機械整備","その他"
+];
+
+var STATUS_OPTIONS = ["育苗中","まもなく収穫開始","収穫中","まもなく収穫終了","終了","計画中"];
+
+/* ============================================================
+   初期化
+   ============================================================ */
+document.addEventListener("DOMContentLoaded", function() {
+  document.getElementById("loginForm").addEventListener("submit", function(e) {
+    e.preventDefault();
+    login();
+  });
+});
+
+/* ============================================================
+   認証
+   ============================================================ */
+function login() {
+  var pw = document.getElementById("loginPassword").value;
+  document.getElementById("loginError").style.display = "none";
+  google.script.run
+    .withSuccessHandler(function(ok) {
+      if (ok) {
+        isLoggedIn = true;
+        document.getElementById("loginScreen").style.display = "none";
+        document.getElementById("appScreen").style.display = "block";
+        initApp();
+      } else {
+        document.getElementById("loginError").style.display = "block";
+      }
+    })
+    .verifyPassword(pw);
+}
+
+function logout() {
+  isLoggedIn = false;
+  document.getElementById("appScreen").style.display = "none";
+  document.getElementById("loginScreen").style.display = "block";
+  document.getElementById("loginPassword").value = "";
+}
+
+/* ============================================================
+   アプリ初期化
+   ============================================================ */
+function initApp() {
+  populateWorkTypeSelect("wlWorkType");
+  populateStatusSelect("ccStatus", 0);
+  setDefaultDate("wlDate");
+  setDefaultDate("ccStartDate");
+  loadCropCycles();
+  switchTab("tabWorkLog");
+}
+
+function setDefaultDate(id) {
+  var today = new Date();
+  var yyyy = today.getFullYear();
+  var mm = ("0" + (today.getMonth() + 1)).slice(-2);
+  var dd = ("0" + today.getDate()).slice(-2);
+  document.getElementById(id).value = yyyy + "-" + mm + "-" + dd;
+}
+
+function populateWorkTypeSelect(id) {
+  var sel = document.getElementById(id);
+  sel.innerHTML = "";
+  WORK_TYPES.forEach(function(t) {
+    var opt = document.createElement("option");
+    opt.value = t; opt.textContent = t;
+    sel.appendChild(opt);
+  });
+  var manual = document.createElement("option");
+  manual.value = "__manual__"; manual.textContent = "（手動入力）";
+  sel.appendChild(manual);
+}
+
+function populateStatusSelect(id, defaultIndex) {
+  var sel = document.getElementById(id);
+  sel.innerHTML = "";
+  STATUS_OPTIONS.forEach(function(s, i) {
+    var opt = document.createElement("option");
+    opt.value = s; opt.textContent = s;
+    if (i === defaultIndex) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+/* ============================================================
+   タブ切替
+   ============================================================ */
+function switchTab(tabId) {
+  var btns = document.querySelectorAll(".tab-btn");
+  var contents = document.querySelectorAll(".tab-content");
+  btns.forEach(function(b) { b.classList.remove("active"); });
+  contents.forEach(function(c) { c.classList.remove("active"); });
+
+  document.querySelector('[data-tab="' + tabId + '"]').classList.add("active");
+  document.getElementById(tabId).classList.add("active");
+
+  if (tabId === "tabWorkLog") loadRecentWorkLogs();
+  if (tabId === "tabCycleEdit") loadCycleEditSelector();
+  if (tabId === "tabLink") { loadLinkCycleSelector(); loadUnlinkedLogs(); }
+}
+
+/* ============================================================
+   作付けデータ読み込み（キャッシュ）
+   ============================================================ */
+function loadCropCycles() {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      cropCyclesCache = data || [];
+      populateCycleSelectors();
+    })
+    .getCropCycles();
+}
+
+function populateCycleSelectors() {
+  populateCycleSelect("wlCycleId", true);
+  populateCycleSelect("ecCycleSelect", false);
+  populateCycleSelect("linkCycleSelect", false);
+}
+
+function populateCycleSelect(id, addNone) {
+  var sel = document.getElementById(id);
+  if (!sel) return;
+  sel.innerHTML = "";
+  if (addNone) {
+    var none = document.createElement("option");
+    none.value = ""; none.textContent = "（紐づけなし）";
+    sel.appendChild(none);
+  }
+  cropCyclesCache.forEach(function(c) {
+    var opt = document.createElement("option");
+    opt.value = c["作付けID"];
+    var label = c["作物名"];
+    if (c["品種"]) label += "（" + c["品種"] + "）";
+    if (c["圃場ID"]) label += " [" + c["圃場ID"] + "]";
+    label += " - " + (c["ステータス"] || "");
+    opt.textContent = label;
+    sel.appendChild(opt);
+  });
+}
+
+/* ============================================================
+   作業種別の手動入力切替
+   ============================================================ */
+function onWorkTypeChange() {
+  var sel = document.getElementById("wlWorkType");
+  var manual = document.getElementById("wlWorkTypeManual");
+  if (sel.value === "__manual__") {
+    manual.style.display = "block";
+    manual.focus();
+  } else {
+    manual.style.display = "none";
+    manual.value = "";
+  }
+}
+
+/* ============================================================
+   Tab 1: 作業記録入力
+   ============================================================ */
+function submitWorkLog() {
+  var sel = document.getElementById("wlWorkType");
+  var workType = sel.value === "__manual__"
+    ? document.getElementById("wlWorkTypeManual").value.trim()
+    : sel.value;
+
+  if (!workType) { showMsg("wlMsg", "作業種別を入力してください", "error"); return; }
+
+  var data = {
+    work_date: document.getElementById("wlDate").value,
+    work_type: workType,
+    cell_pot:  document.getElementById("wlCellPot").value.trim(),
+    quantity:  document.getElementById("wlQuantity").value.trim(),
+    field_id:  document.getElementById("wlFieldId").value.trim(),
+    row_id:    document.getElementById("wlRowId").value.trim(),
+    cycle_id:  document.getElementById("wlCycleId").value,
+    content:   document.getElementById("wlContent").value.trim(),
+    note:      document.getElementById("wlNote").value.trim()
+  };
+
+  setBtnLoading("wlSubmitBtn", true);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      setBtnLoading("wlSubmitBtn", false);
+      if (res.success) {
+        showMsg("wlMsg", "作業記録を登録しました（ID: " + res.id + "）", "success");
+        resetWorkLogForm();
+        loadRecentWorkLogs();
+      } else {
+        showMsg("wlMsg", "エラー: " + res.error, "error");
+      }
+    })
+    .withFailureHandler(function(e) {
+      setBtnLoading("wlSubmitBtn", false);
+      showMsg("wlMsg", "エラー: " + e.message, "error");
+    })
+    .addWorkLog(data);
+}
+
+function resetWorkLogForm() {
+  document.getElementById("wlCellPot").value = "";
+  document.getElementById("wlQuantity").value = "";
+  document.getElementById("wlContent").value = "";
+  document.getElementById("wlNote").value = "";
+  document.getElementById("wlWorkTypeManual").value = "";
+  document.getElementById("wlWorkTypeManual").style.display = "none";
+}
+
+function loadRecentWorkLogs() {
+  var container = document.getElementById("recentLogsTable");
+  container.innerHTML = '<span class="loading-text"><span class="spinner-sm"></span> 読み込み中...</span>';
+  google.script.run
+    .withSuccessHandler(function(logs) {
+      if (!logs || logs.length === 0) {
+        container.innerHTML = '<p class="loading-text">作業記録はまだありません</p>';
+        return;
+      }
+      var html = '<div class="table-scroll"><table class="data-table">';
+      html += '<tr><th>ID</th><th>日付</th><th>作業</th><th>セル・ポット</th><th>数量</th><th>作付け</th><th>圃場</th><th>内容</th><th>備考</th></tr>';
+      logs.forEach(function(l) {
+        html += '<tr>';
+        html += '<td>' + esc(l["記録ID"]) + '</td>';
+        html += '<td>' + esc(l["作業日"]) + '</td>';
+        html += '<td>' + esc(l["作業種別"]) + '</td>';
+        html += '<td>' + esc(l["セル・ポット"]) + '</td>';
+        html += '<td>' + esc(l["数量"]) + '</td>';
+        html += '<td>' + esc(l["作付けID"]) + '</td>';
+        html += '<td>' + esc(l["圃場ID"]) + '</td>';
+        html += '<td>' + esc(l["内容"]) + '</td>';
+        html += '<td>' + esc(l["備考"]) + '</td>';
+        html += '</tr>';
+      });
+      html += '</table></div>';
+      container.innerHTML = html;
+    })
+    .getRecentWorkLogs(20);
+}
+
+function deleteWorkLogById() {
+  var id = document.getElementById("deleteLogId").value.trim();
+  if (!id) { showMsg("wlDeleteMsg", "記録IDを入力してください", "error"); return; }
+  if (!confirm("記録 " + id + " を削除しますか？")) return;
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) {
+        showMsg("wlDeleteMsg", "削除しました", "success");
+        document.getElementById("deleteLogId").value = "";
+        loadRecentWorkLogs();
+      } else {
+        showMsg("wlDeleteMsg", res.error, "error");
+      }
+    })
+    .deleteWorkLog(id);
+}
+
+/* ============================================================
+   Tab 2: 作付け登録
+   ============================================================ */
+function submitCropCycle() {
+  var cropName = document.getElementById("ccCropName").value.trim();
+  if (!cropName) { showMsg("ccMsg", "作物名を入力してください", "error"); return; }
+
+  var data = {
+    crop_name:  cropName,
+    variety:    document.getElementById("ccVariety").value.trim(),
+    field_id:   document.getElementById("ccFieldId").value.trim(),
+    row_id:     document.getElementById("ccRowId").value.trim(),
+    start_date: document.getElementById("ccStartDate").value,
+    status:     document.getElementById("ccStatus").value,
+    comment:    document.getElementById("ccComment").value.trim()
+  };
+
+  setBtnLoading("ccSubmitBtn", true);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      setBtnLoading("ccSubmitBtn", false);
+      if (res.success) {
+        showMsg("ccMsg", "作付けを登録しました（ID: " + res.id + "）", "success");
+        document.getElementById("ccCropName").value = "";
+        document.getElementById("ccVariety").value = "";
+        document.getElementById("ccComment").value = "";
+        loadCropCycles();
+      } else {
+        showMsg("ccMsg", "エラー: " + res.error, "error");
+      }
+    })
+    .withFailureHandler(function(e) {
+      setBtnLoading("ccSubmitBtn", false);
+      showMsg("ccMsg", "エラー: " + e.message, "error");
+    })
+    .addCropCycle(data);
+}
+
+/* ============================================================
+   Tab 3: 作付け編集
+   ============================================================ */
+function loadCycleEditSelector() {
+  populateCycleSelect("ecCycleSelect", false);
+  document.getElementById("ecEditForm").style.display = "none";
+}
+
+function loadCycleForEdit() {
+  var id = document.getElementById("ecCycleSelect").value;
+  if (!id) return;
+
+  var cycle = cropCyclesCache.find(function(c) { return c["作付けID"] === id; });
+  if (!cycle) return;
+
+  document.getElementById("ecId").value = cycle["作付けID"];
+  document.getElementById("ecCropName").value = cycle["作物名"] || "";
+  document.getElementById("ecVariety").value = cycle["品種"] || "";
+  document.getElementById("ecFieldId").value = cycle["圃場ID"] || "";
+  document.getElementById("ecRowId").value = cycle["畝ID"] || "";
+  document.getElementById("ecStartDate").value = cycle["開始日"] || "";
+  document.getElementById("ecEndDate").value = cycle["終了日"] || "";
+
+  var statusSel = document.getElementById("ecStatus");
+  statusSel.innerHTML = "";
+  STATUS_OPTIONS.forEach(function(s) {
+    var opt = document.createElement("option");
+    opt.value = s; opt.textContent = s;
+    if (s === cycle["ステータス"]) opt.selected = true;
+    statusSel.appendChild(opt);
+  });
+
+  document.getElementById("ecYieldAmount").value = cycle["収量"] || "";
+  document.getElementById("ecYieldUnit").value = cycle["単位"] || "kg";
+
+  var qSel = document.getElementById("ecQualityRating");
+  qSel.innerHTML = "";
+  ["","A","B","C"].forEach(function(v) {
+    var opt = document.createElement("option");
+    opt.value = v; opt.textContent = v || "（なし）";
+    if (v === cycle["品質評価"]) opt.selected = true;
+    qSel.appendChild(opt);
+  });
+
+  document.getElementById("ecQualityNote").value = cycle["品質メモ"] || "";
+  document.getElementById("ecComment").value = cycle["コメント"] || "";
+  document.getElementById("ecEditForm").style.display = "block";
+  document.getElementById("ecMsg").innerHTML = "";
+}
+
+function saveCycleEdit() {
+  var id = document.getElementById("ecId").value;
+  var data = {
+    crop_name:      document.getElementById("ecCropName").value.trim(),
+    variety:        document.getElementById("ecVariety").value.trim(),
+    field_id:       document.getElementById("ecFieldId").value.trim(),
+    row_id:         document.getElementById("ecRowId").value.trim(),
+    start_date:     document.getElementById("ecStartDate").value,
+    end_date:       document.getElementById("ecEndDate").value,
+    status:         document.getElementById("ecStatus").value,
+    yield_amount:   document.getElementById("ecYieldAmount").value,
+    yield_unit:     document.getElementById("ecYieldUnit").value.trim() || "kg",
+    quality_rating: document.getElementById("ecQualityRating").value,
+    quality_note:   document.getElementById("ecQualityNote").value.trim(),
+    comment:        document.getElementById("ecComment").value.trim()
+  };
+
+  setBtnLoading("ecSaveBtn", true);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      setBtnLoading("ecSaveBtn", false);
+      if (res.success) {
+        showMsg("ecMsg", "保存しました", "success");
+        loadCropCycles();
+      } else {
+        showMsg("ecMsg", "エラー: " + res.error, "error");
+      }
+    })
+    .updateCropCycle(id, data);
+}
+
+function deleteCycleEdit() {
+  var id = document.getElementById("ecId").value;
+  if (!confirm("作付け " + id + " を削除しますか？この操作は取り消せません。")) return;
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) {
+        showMsg("ecMsg", "削除しました", "success");
+        document.getElementById("ecEditForm").style.display = "none";
+        loadCropCycles();
+      } else {
+        showMsg("ecMsg", "エラー: " + res.error, "error");
+      }
+    })
+    .deleteCropCycle(id);
+}
+
+/* ============================================================
+   Tab 4: 作業記録の紐づけ
+   ============================================================ */
+function loadLinkCycleSelector() {
+  populateCycleSelect("linkCycleSelect", false);
+}
+
+function loadUnlinkedLogs() {
+  var container = document.getElementById("unlinkedLogsList");
+  container.innerHTML = '<span class="loading-text"><span class="spinner-sm"></span> 読み込み中...</span>';
+  google.script.run
+    .withSuccessHandler(function(logs) {
+      if (!logs || logs.length === 0) {
+        container.innerHTML = '<p class="loading-text">未紐づけの作業記録はありません</p>';
+        return;
+      }
+      var html = "";
+      logs.forEach(function(l) {
+        html += '<div class="link-item">';
+        html += '<div class="link-info">';
+        html += '<span class="link-date">' + esc(l["作業日"]) + '</span>';
+        html += '<strong>' + esc(l["作業種別"]) + '</strong>';
+        if (l["圃場ID"]) html += ' <span style="color:#888;">[' + esc(l["圃場ID"]) + ']</span>';
+        if (l["内容"]) html += '<br><span style="color:#666;">' + esc(l["内容"]) + '</span>';
+        html += '</div>';
+        html += '<button class="btn btn-primary btn-sm" onclick="linkLog(\'' + esc(l["記録ID"]) + '\')">リンク</button>';
+        html += '</div>';
+      });
+      container.innerHTML = html;
+    })
+    .getUnlinkedWorkLogs(50);
+}
+
+function linkLog(logId) {
+  var cycleId = document.getElementById("linkCycleSelect").value;
+  if (!cycleId) { showMsg("linkMsg", "紐づけ先の作付けを選択してください", "error"); return; }
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) {
+        showMsg("linkMsg", "紐づけました（" + logId + " → " + cycleId + "）", "success");
+        loadUnlinkedLogs();
+      } else {
+        showMsg("linkMsg", res.error, "error");
+      }
+    })
+    .linkWorkLog(logId, cycleId);
+}
+
+/* ============================================================
+   Tab 5: CSVインポート
+   ============================================================ */
+var csvParsedData = [];
+
+function handleCsvFile() {
+  var fileInput = document.getElementById("csvFile");
+  var file = fileInput.files[0];
+  if (!file) return;
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result;
+    parseCsvText(text);
+  };
+  reader.readAsText(file, "UTF-8");
+}
+
+function handleCsvEncodingChange() {
+  var fileInput = document.getElementById("csvFile");
+  if (!fileInput.files[0]) return;
+  var enc = document.getElementById("csvEncoding").value;
+  var reader = new FileReader();
+  reader.onload = function(e) { parseCsvText(e.target.result); };
+  reader.readAsText(fileInput.files[0], enc);
+}
+
+function parseCsvText(text) {
+  var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+  if (lines.length < 2) {
+    document.getElementById("csvPreview").innerHTML = '<p class="loading-text">データが見つかりません</p>';
+    return;
+  }
+
+  csvParsedData = [];
+  var headerLine = lines[0];
+  var headers = splitCsvLine(headerLine);
+
+  var html = '<div class="csv-preview"><table class="data-table"><tr>';
+  headers.forEach(function(h, i) { html += '<th>' + esc(h) + ' (' + i + ')</th>'; });
+  html += '</tr>';
+
+  for (var i = 1; i < Math.min(lines.length, 21); i++) {
+    var cols = splitCsvLine(lines[i]);
+    csvParsedData.push(cols);
+    html += '<tr>';
+    cols.forEach(function(c) { html += '<td>' + esc(c) + '</td>'; });
+    html += '</tr>';
+  }
+  if (lines.length > 21) {
+    for (var j = 21; j < lines.length; j++) {
+      csvParsedData.push(splitCsvLine(lines[j]));
+    }
+  }
+  html += '</table></div>';
+  html += '<p style="color:#888;font-size:0.85em;">' + csvParsedData.length + ' 行 / ' + headers.length + ' 列</p>';
+
+  document.getElementById("csvPreview").innerHTML = html;
+  document.getElementById("csvMappingSection").style.display = "block";
+  populateColumnSelects(headers);
+}
+
+function splitCsvLine(line) {
+  var result = [];
+  var current = "";
+  var inQuote = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (inQuote) {
+      if (ch === '"' && i + 1 < line.length && line[i + 1] === '"') {
+        current += '"'; i++;
+      } else if (ch === '"') {
+        inQuote = false;
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ',') { result.push(current.trim()); current = ""; }
+      else { current += ch; }
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function populateColumnSelects(headers) {
+  var ids = ["csvColDate","csvColType","csvColField","csvColRow","csvColContent","csvColNote"];
+  var defaults = [0, 1, 2, 3, 4, 5];
+  ids.forEach(function(id, idx) {
+    var sel = document.getElementById(id);
+    sel.innerHTML = '<option value="-1">（なし）</option>';
+    headers.forEach(function(h, i) {
+      var opt = document.createElement("option");
+      opt.value = i; opt.textContent = i + ": " + h;
+      if (i === defaults[idx] && i < headers.length) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+function importCsv() {
+  if (csvParsedData.length === 0) { showMsg("csvMsg", "CSVデータがありません", "error"); return; }
+
+  var colDate    = parseInt(document.getElementById("csvColDate").value);
+  var colType    = parseInt(document.getElementById("csvColType").value);
+  var colField   = parseInt(document.getElementById("csvColField").value);
+  var colRow     = parseInt(document.getElementById("csvColRow").value);
+  var colContent = parseInt(document.getElementById("csvColContent").value);
+  var colNote    = parseInt(document.getElementById("csvColNote").value);
+
+  var records = [];
+  var prevDate = "";
+  for (var i = 0; i < csvParsedData.length; i++) {
+    var r = csvParsedData[i];
+    var rawDate = colDate >= 0 ? (r[colDate] || "") : "";
+    var date = convertDate(rawDate, prevDate);
+    if (date) prevDate = date;
+
+    var content = colContent >= 0 ? (r[colContent] || "") : "";
+    if (!date && !content) continue;
+
+    var wtype = colType >= 0 ? (r[colType] || "") : "";
+    if (!wtype || wtype === "nan") wtype = "その他";
+
+    records.push({
+      work_date: date,
+      work_type: wtype,
+      field_id:  colField >= 0 ? (r[colField] || "") : "",
+      row_id:    colRow >= 0 ? (r[colRow] || "") : "",
+      content:   content,
+      note:      colNote >= 0 ? (r[colNote] || "") : "",
+      cycle_id:  "",
+      cell_pot:  "",
+      quantity:  ""
+    });
+  }
+
+  if (records.length === 0) { showMsg("csvMsg", "インポートできるレコードがありません", "error"); return; }
+  if (!confirm(records.length + " 件をインポートしますか？")) return;
+
+  setBtnLoading("csvImportBtn", true);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      setBtnLoading("csvImportBtn", false);
+      if (res.success) {
+        showMsg("csvMsg", res.count + " 件をインポートしました", "success");
+        csvParsedData = [];
+        document.getElementById("csvPreview").innerHTML = "";
+        document.getElementById("csvMappingSection").style.display = "none";
+        document.getElementById("csvFile").value = "";
+      } else {
+        showMsg("csvMsg", "エラー: " + res.error, "error");
+      }
+    })
+    .withFailureHandler(function(e) {
+      setBtnLoading("csvImportBtn", false);
+      showMsg("csvMsg", "エラー: " + e.message, "error");
+    })
+    .importCsvRecords(records);
+}
+
+function convertDate(raw, prev) {
+  if (!raw || raw.trim() === "") return prev || "";
+  raw = raw.trim();
+  if (/^\d{2}\/\d{1,2}\/\d{1,2}$/.test(raw)) {
+    var p = raw.split("/");
+    return "20" + p[0] + "-" + ("0" + p[1]).slice(-2) + "-" + ("0" + p[2]).slice(-2);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{8}$/.test(raw)) return raw.substring(0,4) + "-" + raw.substring(4,6) + "-" + raw.substring(6,8);
+  return prev || "";
+}
+
+/* ============================================================
+   ユーティリティ
+   ============================================================ */
+function showMsg(containerId, text, type) {
+  var cls = type === "success" ? "msg-success" : type === "error" ? "msg-error" : "msg-info";
+  document.getElementById(containerId).innerHTML = '<div class="msg ' + cls + '">' + esc(text) + '</div>';
+  if (type === "success") {
+    setTimeout(function() {
+      var el = document.getElementById(containerId);
+      if (el) el.innerHTML = "";
+    }, 5000);
+  }
+}
+
+function setBtnLoading(btnId, loading) {
+  var btn = document.getElementById(btnId);
+  if (loading) {
+    btn.disabled = true;
+    btn.dataset.originalText = btn.textContent;
+    btn.innerHTML = '<span class="spinner-sm"></span> 処理中...';
+  } else {
+    btn.disabled = false;
+    btn.textContent = btn.dataset.originalText || "送信";
+  }
+}
+
+function esc(str) {
+  if (str == null) return "";
+  var div = document.createElement("div");
+  div.textContent = String(str);
+  return div.innerHTML;
+}
+</script>

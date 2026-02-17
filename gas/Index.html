@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Styles') ?>
+</head>
+<body>
+
+<!-- ========== ログイン画面 ========== -->
+<div id="loginScreen">
+  <header class="app-header">
+    <div>
+      <h1>農作業記録簿 — 管理画面</h1>
+    </div>
+  </header>
+  <div class="login-wrapper">
+    <div class="login-card">
+      <h2>ログイン</h2>
+      <p>管理パスワードを入力してください</p>
+      <form id="loginForm">
+        <div class="form-group">
+          <input type="password" id="loginPassword" placeholder="パスワード" required>
+        </div>
+        <div id="loginError" class="msg msg-error" style="display:none;">パスワードが正しくありません</div>
+        <button type="submit" class="btn btn-primary">ログイン</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ========== メインアプリ ========== -->
+<div id="appScreen" style="display:none;">
+
+  <!-- ヘッダー -->
+  <header class="app-header">
+    <div>
+      <h1>農作業記録簿 — 管理画面</h1>
+      <div class="subtitle">Google Sheets 連携版</div>
+    </div>
+    <div class="header-right">
+      <a class="btn-view" href="https://frgfrm-ops.github.io/farm-record-v2/" target="_blank">閲覧ページ</a>
+      <button class="btn-logout" onclick="logout()">ログアウト</button>
+    </div>
+  </header>
+
+  <!-- タブナビゲーション -->
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="tabWorkLog" onclick="switchTab('tabWorkLog')">作業記録入力</button>
+    <button class="tab-btn" data-tab="tabCycleNew" onclick="switchTab('tabCycleNew')">作付け登録</button>
+    <button class="tab-btn" data-tab="tabCycleEdit" onclick="switchTab('tabCycleEdit')">作付け編集</button>
+    <button class="tab-btn" data-tab="tabLink" onclick="switchTab('tabLink')">紐づけ</button>
+    <button class="tab-btn" data-tab="tabCsvImport" onclick="switchTab('tabCsvImport')">CSVインポート</button>
+  </nav>
+
+  <div class="container">
+
+    <!-- ==================== Tab 1: 作業記録入力 ==================== -->
+    <div id="tabWorkLog" class="tab-content active">
+      <div class="card">
+        <h2>作業記録入力</h2>
+        <div id="wlMsg"></div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>作業日</label>
+            <input type="date" id="wlDate">
+          </div>
+          <div class="form-group">
+            <label>作業種別<span class="req">*</span></label>
+            <select id="wlWorkType" onchange="onWorkTypeChange()"></select>
+            <input type="text" id="wlWorkTypeManual" style="display:none;margin-top:6px;" placeholder="作業種別を入力">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>セル・ポット</label>
+            <input type="text" id="wlCellPot" placeholder="例: 128セル, 7.5cmポット">
+          </div>
+          <div class="form-group">
+            <label>数量</label>
+            <input type="text" id="wlQuantity" placeholder="例: 200, 3袋, 5kg">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>圃場ID</label>
+            <input type="text" id="wlFieldId" placeholder="例: d01, hs01">
+          </div>
+          <div class="form-group">
+            <label>畝ID</label>
+            <input type="text" id="wlRowId" placeholder="例: 1, A">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>紐づける作付け</label>
+          <select id="wlCycleId"></select>
+        </div>
+
+        <div class="form-group">
+          <label>作業内容</label>
+          <textarea id="wlContent" rows="2" placeholder="作業の詳細を入力"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>備考</label>
+          <textarea id="wlNote" rows="2" placeholder="補足情報"></textarea>
+        </div>
+
+        <button id="wlSubmitBtn" class="btn btn-primary" onclick="submitWorkLog()">登録</button>
+      </div>
+
+      <!-- 直近の作業記録 -->
+      <div class="card">
+        <h2>直近の作業記録（20件）</h2>
+        <div id="recentLogsTable"></div>
+      </div>
+
+      <!-- 削除 -->
+      <div class="card">
+        <h2>作業記録の削除</h2>
+        <div id="wlDeleteMsg"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>削除する記録ID</label>
+            <input type="text" id="deleteLogId" placeholder="例: W001">
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button class="btn btn-danger" onclick="deleteWorkLogById()">削除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== Tab 2: 作付け登録 ==================== -->
+    <div id="tabCycleNew" class="tab-content">
+      <div class="card">
+        <h2>作付け新規登録</h2>
+        <div id="ccMsg"></div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>作物名<span class="req">*</span></label>
+            <input type="text" id="ccCropName" placeholder="例: トマト">
+          </div>
+          <div class="form-group">
+            <label>品種</label>
+            <input type="text" id="ccVariety" placeholder="例: 桃太郎">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>圃場ID</label>
+            <input type="text" id="ccFieldId" placeholder="例: d01">
+          </div>
+          <div class="form-group">
+            <label>畝ID</label>
+            <input type="text" id="ccRowId" placeholder="例: 1">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>開始日</label>
+            <input type="date" id="ccStartDate">
+          </div>
+          <div class="form-group">
+            <label>ステータス</label>
+            <select id="ccStatus"></select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>コメント</label>
+          <textarea id="ccComment" rows="2" placeholder="メモなど"></textarea>
+        </div>
+
+        <button id="ccSubmitBtn" class="btn btn-primary" onclick="submitCropCycle()">登録</button>
+      </div>
+    </div>
+
+    <!-- ==================== Tab 3: 作付け編集 ==================== -->
+    <div id="tabCycleEdit" class="tab-content">
+      <div class="card">
+        <h2>作付け編集・結果入力</h2>
+
+        <div class="form-group">
+          <label>編集する作付けを選択</label>
+          <select id="ecCycleSelect" onchange="loadCycleForEdit()">
+            <option value="">選択してください</option>
+          </select>
+        </div>
+
+        <div id="ecEditForm" style="display:none;">
+          <div id="ecMsg"></div>
+          <input type="hidden" id="ecId">
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>作物名<span class="req">*</span></label>
+              <input type="text" id="ecCropName">
+            </div>
+            <div class="form-group">
+              <label>品種</label>
+              <input type="text" id="ecVariety">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>圃場ID</label>
+              <input type="text" id="ecFieldId">
+            </div>
+            <div class="form-group">
+              <label>畝ID</label>
+              <input type="text" id="ecRowId">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>開始日</label>
+              <input type="date" id="ecStartDate">
+            </div>
+            <div class="form-group">
+              <label>終了日</label>
+              <input type="date" id="ecEndDate">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>ステータス</label>
+            <select id="ecStatus"></select>
+          </div>
+
+          <div class="form-row-3">
+            <div class="form-group">
+              <label>収量</label>
+              <input type="number" id="ecYieldAmount" step="0.1" min="0">
+            </div>
+            <div class="form-group">
+              <label>単位</label>
+              <input type="text" id="ecYieldUnit" value="kg">
+            </div>
+            <div class="form-group">
+              <label>品質評価</label>
+              <select id="ecQualityRating"></select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>品質メモ</label>
+            <textarea id="ecQualityNote" rows="2"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>コメント</label>
+            <textarea id="ecComment" rows="2"></textarea>
+          </div>
+
+          <div class="btn-group">
+            <button id="ecSaveBtn" class="btn btn-primary" onclick="saveCycleEdit()">保存</button>
+            <button class="btn btn-danger" onclick="deleteCycleEdit()">この作付けを削除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== Tab 4: 紐づけ ==================== -->
+    <div id="tabLink" class="tab-content">
+      <div class="card">
+        <h2>作業記録の紐づけ</h2>
+        <div id="linkMsg"></div>
+
+        <div class="form-group">
+          <label>紐づけ先の作付け</label>
+          <select id="linkCycleSelect"></select>
+        </div>
+
+        <h3 style="font-size:0.95em;color:#555;margin:16px 0 8px;">未紐づけの作業記録</h3>
+        <div id="unlinkedLogsList"></div>
+      </div>
+    </div>
+
+    <!-- ==================== Tab 5: CSVインポート ==================== -->
+    <div id="tabCsvImport" class="tab-content">
+      <div class="card">
+        <h2>CSVインポート</h2>
+        <div id="csvMsg"></div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>CSVファイル</label>
+            <input type="file" id="csvFile" accept=".csv" onchange="handleCsvFile()">
+          </div>
+          <div class="form-group">
+            <label>文字コード</label>
+            <select id="csvEncoding" onchange="handleCsvEncodingChange()">
+              <option value="UTF-8">UTF-8</option>
+              <option value="Shift_JIS">Shift-JIS</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="csvPreview"></div>
+
+        <div id="csvMappingSection" style="display:none;">
+          <h3 style="font-size:0.95em;color:#555;margin:16px 0 10px;">カラムマッピング</h3>
+          <div class="form-row-3">
+            <div class="form-group">
+              <label>日付の列</label>
+              <select id="csvColDate"></select>
+            </div>
+            <div class="form-group">
+              <label>作業種別の列</label>
+              <select id="csvColType"></select>
+            </div>
+            <div class="form-group">
+              <label>圃場IDの列</label>
+              <select id="csvColField"></select>
+            </div>
+          </div>
+          <div class="form-row-3">
+            <div class="form-group">
+              <label>畝IDの列</label>
+              <select id="csvColRow"></select>
+            </div>
+            <div class="form-group">
+              <label>内容の列</label>
+              <select id="csvColContent"></select>
+            </div>
+            <div class="form-group">
+              <label>備考の列</label>
+              <select id="csvColNote"></select>
+            </div>
+          </div>
+
+          <button id="csvImportBtn" class="btn btn-primary" onclick="importCsv()">インポート実行</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /container -->
+</div><!-- /appScreen -->
+
+<?!= include('JavaScript') ?>
+</body>
+</html>

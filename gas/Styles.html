@@ -1,0 +1,197 @@
+<style>
+/* ============================================
+   リセット & ベース
+   ============================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Meiryo", sans-serif;
+  background: #f7f9f7;
+  color: #333;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ============================================
+   ヘッダー
+   ============================================ */
+.app-header {
+  background: linear-gradient(135deg, #2e7d32, #4CAF50);
+  color: #fff;
+  padding: 14px 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.app-header h1 { font-size: 1.2em; font-weight: 700; }
+.app-header .subtitle { font-size: 0.75em; opacity: 0.85; }
+.header-right { display: flex; align-items: center; gap: 10px; }
+.btn-logout {
+  background: rgba(255,255,255,0.2); color: #fff; border: 1px solid rgba(255,255,255,0.4);
+  padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 0.82em;
+}
+.btn-logout:hover { background: rgba(255,255,255,0.35); }
+.btn-view {
+  background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3);
+  padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 0.82em; text-decoration: none;
+}
+.btn-view:hover { background: rgba(255,255,255,0.3); }
+
+/* ============================================
+   タブナビゲーション
+   ============================================ */
+.tab-nav {
+  display: flex; background: #fff; border-bottom: 2px solid #e0e0e0;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.tab-btn {
+  padding: 12px 16px; border: none; background: none; cursor: pointer;
+  font-size: 0.85em; color: #777; white-space: nowrap; border-bottom: 3px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab-btn:hover { color: #2e7d32; }
+.tab-btn.active { color: #2e7d32; border-bottom-color: #4CAF50; font-weight: 600; }
+
+/* ============================================
+   コンテナ
+   ============================================ */
+.container { max-width: 860px; margin: 0 auto; padding: 20px 16px; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ============================================
+   カード
+   ============================================ */
+.card {
+  background: #fff; border-radius: 10px; padding: 20px;
+  border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  margin-bottom: 16px;
+}
+.card h2 { font-size: 1.05em; color: #2e7d32; margin-bottom: 16px; }
+
+/* ============================================
+   フォーム
+   ============================================ */
+.form-group { margin-bottom: 14px; }
+.form-group label {
+  display: block; font-size: 0.85em; font-weight: 600; color: #555; margin-bottom: 4px;
+}
+.form-group label .req { color: #c62828; margin-left: 2px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+input[type="text"], input[type="date"], input[type="number"],
+select, textarea {
+  width: 100%; padding: 9px 12px; border: 1px solid #ccc; border-radius: 6px;
+  font-size: 0.9em; background: #fff; color: #333; font-family: inherit;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: #4CAF50; box-shadow: 0 0 0 2px rgba(76,175,80,0.2);
+}
+textarea { resize: vertical; min-height: 60px; }
+
+/* ============================================
+   ボタン
+   ============================================ */
+.btn {
+  display: inline-block; padding: 10px 24px; border: none; border-radius: 6px;
+  font-size: 0.9em; font-weight: 600; cursor: pointer; transition: background 0.15s;
+}
+.btn-primary { background: #4CAF50; color: #fff; }
+.btn-primary:hover { background: #43A047; }
+.btn-primary:disabled { background: #aaa; cursor: not-allowed; }
+.btn-danger { background: #e53935; color: #fff; }
+.btn-danger:hover { background: #d32f2f; }
+.btn-secondary { background: #f5f5f5; color: #555; border: 1px solid #ccc; }
+.btn-secondary:hover { background: #eee; }
+.btn-sm { padding: 5px 14px; font-size: 0.82em; }
+.btn-group { display: flex; gap: 10px; margin-top: 16px; }
+
+/* ============================================
+   テーブル
+   ============================================ */
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.85em; margin-top: 12px; }
+.data-table th {
+  background: #f5f5f5; padding: 8px 10px; text-align: left;
+  font-weight: 600; color: #555; border-bottom: 2px solid #e0e0e0; white-space: nowrap;
+}
+.data-table td { padding: 8px 10px; border-bottom: 1px solid #eee; }
+.data-table tr:hover { background: #fafff9; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ============================================
+   メッセージ
+   ============================================ */
+.msg { padding: 12px 16px; border-radius: 8px; margin-bottom: 14px; font-size: 0.9em; }
+.msg-success { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+.msg-error { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+.msg-info { background: #e3f2fd; color: #1565c0; border: 1px solid #bbdefb; }
+
+/* ============================================
+   ログイン画面
+   ============================================ */
+.login-wrapper {
+  display: flex; align-items: center; justify-content: center; min-height: 80vh;
+}
+.login-card {
+  background: #fff; border-radius: 12px; padding: 36px 32px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08); width: 100%; max-width: 380px; text-align: center;
+}
+.login-card h2 { color: #2e7d32; margin-bottom: 8px; }
+.login-card p { color: #888; font-size: 0.88em; margin-bottom: 24px; }
+.login-card input[type="password"] {
+  text-align: center; font-size: 1.1em; padding: 12px; margin-bottom: 16px;
+}
+.login-card .btn { width: 100%; }
+
+/* ============================================
+   バッジ
+   ============================================ */
+.badge {
+  display: inline-block; padding: 2px 10px; border-radius: 10px;
+  font-size: 0.78em; font-weight: 600; white-space: nowrap;
+}
+.badge-active { background: #e8f5e9; color: #2e7d32; }
+.badge-plan { background: #fff3e0; color: #e65100; }
+.badge-done { background: #e3f2fd; color: #1565c0; }
+
+/* ============================================
+   紐づけリスト
+   ============================================ */
+.link-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border-bottom: 1px solid #eee; font-size: 0.88em;
+}
+.link-item:last-child { border-bottom: none; }
+.link-item .link-info { flex: 1; }
+.link-item .link-date { color: #888; font-weight: 600; margin-right: 8px; }
+
+/* ============================================
+   CSVプレビュー
+   ============================================ */
+.csv-preview { max-height: 300px; overflow: auto; margin-bottom: 14px; }
+
+/* ============================================
+   ローディング
+   ============================================ */
+.spinner-sm {
+  display: inline-block; width: 16px; height: 16px;
+  border: 2px solid #ccc; border-top-color: #4CAF50;
+  border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { color: #888; font-size: 0.88em; }
+
+/* ============================================
+   レスポンシブ
+   ============================================ */
+@media (max-width: 600px) {
+  .container { padding: 12px 10px; }
+  .form-row, .form-row-3 { grid-template-columns: 1fr; }
+  .app-header { padding: 12px 14px; flex-wrap: wrap; gap: 6px; }
+  .app-header h1 { font-size: 1em; }
+  .tab-btn { padding: 10px 12px; font-size: 0.8em; }
+  .card { padding: 14px; }
+  .btn-group { flex-direction: column; }
+  .link-item { flex-direction: column; align-items: flex-start; }
+}
+</style>
